@@ -142,3 +142,4 @@ if __name__ == "__main__":
         answer = query_rag(question, topic_stores, llm_model, k=2, top_n=5)
         print("A:", answer)
 
+ 

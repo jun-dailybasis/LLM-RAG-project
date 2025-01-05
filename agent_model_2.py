@@ -1,13 +1,29 @@
 import os
-import pandas as pd
+import pickle
 import numpy as np
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-from langchain_community.vectorstores import DocArrayInMemorySearch
+from langchain_openai import ChatOpenAI
 from langchain.docstore.document import Document
+from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema import SystemMessage, HumanMessage
+from sklearn.metrics.pairwise import cosine_similarity
 
-# 데이터 로드 및 body 생성
+# 임베딩 캐시 파일 경로
+EMBEDDING_CACHE_FILE = "./embeddings_cache.pkl"
+
+# 캐시 로드/저장 함수
+def load_embeddings_cache():
+    if os.path.exists(EMBEDDING_CACHE_FILE):
+        with open(EMBEDDING_CACHE_FILE, "rb") as f:
+            return pickle.load(f)
+    return {}
+
+def save_embeddings_cache(cache):
+    with open(EMBEDDING_CACHE_FILE, "wb") as f:
+        pickle.dump(cache, f)
+
+# 데이터 로드 및 문서 변환
 def load_and_prepare_data(file_path):
+    import pandas as pd
     df = pd.read_excel(file_path, engine="openpyxl")
     df['body'] = (
         "제품명은 " + df['제품명'].fillna('') + "입니다. "
@@ -21,50 +37,72 @@ def load_and_prepare_data(file_path):
         "이 약은 다음과 같은 부작용이 있을 수 있습니다. " + df['이 약은 어떤 이상반응이 나타날 수 있습니까?'].fillna('') + ". "
         "보관방법은 다음과 같습니다. " + df['이 약은 어떻게 보관해야 합니까?'].fillna('') + "."
     )
-    return df
-
-# 임베딩 벡터 생성
-def get_embedding_vectors(df, column, batch_size=50):
-    import time
-    from openai.embeddings_utils import get_embedding
-
-    embeddings = []
-    texts = df[column].fillna('').tolist()
-
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
-        try:
-            print(f"Processing batch {i // batch_size + 1}...")
-            batch_embeddings = get_embedding(batch_texts, model="text-embedding-3-large")
-            embeddings.extend(batch_embeddings)
-            time.sleep(1)
-        except Exception as e:
-            print(f"Error processing batch {i // batch_size + 1}: {e}")
-            break
-
-    return np.array(embeddings)
-
-# Document 변환
-def convert_to_documents(df):
-    documents = []
-    for idx, row in df.iterrows():
-        content = str(row['body'])
-        metadata = {"product_name": row['제품명'], "company_name": row['업체명'], "row_index": idx}
-        documents.append(Document(page_content=content, metadata=metadata))
+    documents = [
+        Document(page_content=row['body'], metadata={"product_name": row['제품명'], "company_name": row['업체명']})
+        for _, row in df.iterrows()
+    ]
     return documents
 
-# 벡터스토어 생성
+# 벡터 스토어 생성 (캐시와 OpenAI API 혼용)
 def build_vector_store(documents):
-    embeddings = OpenAIEmbeddings(model='text-embedding-3-large')
-    return DocArrayInMemorySearch.from_documents(documents, embeddings)
+    embedding_model = OpenAIEmbeddings(model='text-embedding-ada-002')
+    embedding_cache = load_embeddings_cache()
+    new_embeddings = {}
 
-# RAG 쿼리
-def query_rag(question, vector_store, model, k=5):
-    search_results = vector_store.similarity_search(question, k=k)
-    if not search_results:
+    vectors = []
+    filtered_documents = []
+
+    for doc in documents:
+        content = doc.page_content
+        if content in embedding_cache:
+            print(f"✅ Using cached embedding for: {content[:30]}...")
+            vectors.append(embedding_cache[content])
+        else:
+            print(f"🚨 Generating new embedding for: {content[:30]}...")
+            embedding = embedding_model.embed_query(content)
+            new_embeddings[content] = embedding
+            vectors.append(embedding)
+
+        filtered_documents.append(doc)
+
+    # 캐시 업데이트 및 저장
+    embedding_cache.update(new_embeddings)
+    save_embeddings_cache(embedding_cache)
+
+    return np.array(vectors), filtered_documents
+
+# 유사도 검색 함수
+def similarity_search(question, vectors, documents, embedding_model, top_k=5):
+    question_embedding = embedding_model.embed_query(question)
+    similarities = cosine_similarity([question_embedding], vectors)[0]
+    top_indices = np.argsort(similarities)[::-1][:top_k]
+
+    return [documents[i] for i in top_indices]
+
+# 키워드 검색 함수
+def keyword_search(question, documents):
+    keywords = question.split()  # 질문에서 키워드 추출
+    return [
+        doc for doc in documents
+        if any(keyword in doc.page_content for keyword in keywords)
+    ]
+
+# RAG 쿼리 함수
+def query_rag(question, vectors, documents, model, embedding_model, k=5):
+    # Step 1: 유사도 검색
+    search_results = similarity_search(question, vectors, documents, embedding_model, top_k=k)
+    
+    # Step 2: 키워드 검색
+    keyword_results = keyword_search(question, documents)
+    
+    # Step 3: 검색 결과 병합 (중복 제거)
+    combined_results = {doc.page_content: doc for doc in search_results + keyword_results}.values()
+    
+    if not combined_results:
         return "관련된 정보를 찾을 수 없습니다."
 
-    context = "\n\n".join([result.page_content for result in search_results])
+    # 검색된 문서 내용 합치기
+    context = "\n\n".join([result.page_content for result in combined_results])
     system_prompt = (
         "다음 정보를 참고해 사용자 질문에 답해주세요. "
         "만약 해당 내용이 부족하거나 확신이 없다면, 모른다고 답해주세요.\n\n"
@@ -81,15 +119,14 @@ def query_rag(question, vector_store, model, k=5):
 # 메인 실행
 if __name__ == "__main__":
     file_path = "./edruginfo.xlsx"
-    df = load_and_prepare_data(file_path)
-    df['body'] = df['body'].apply(lambda x: x[:1000] if len(x) > 1000 else x)
-    documents = convert_to_documents(df)
-    vector_store = build_vector_store(documents)
+    documents = load_and_prepare_data(file_path)
+    vectors, filtered_documents = build_vector_store(documents)
     llm_model = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+    embedding_model = OpenAIEmbeddings(model='text-embedding-ada-002')
 
     while True:
         question = input("질문을 입력해주세요 (종료하려면 'exit' 입력): ")
         if question.lower() == 'exit':
             break
-        answer = query_rag(question, vector_store, llm_model, k=5)
+        answer = query_rag(question, vectors, filtered_documents, llm_model, embedding_model, k=5)
         print("\nA:", answer)
