@@ -1,2 +1,4 @@
 embeddings_cache.pkl filter=lfs diff=lfs merge=lfs -text
 *.pkl filter=lfs diff=lfs merge=lfs -text
+embeddings_cache2.pkl filter=lfs diff=lfs merge=lfs -text
+embeddings_cache3.pkl filter=lfs diff=lfs merge=lfs -text
