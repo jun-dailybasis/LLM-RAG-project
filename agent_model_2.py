@@ -7,6 +7,8 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema import SystemMessage, HumanMessage
 from sklearn.metrics.pairwise import cosine_similarity
 
+import pdb
+import re
 # 임베딩 캐시 파일 경로
 EMBEDDING_CACHE_FILE = "./embeddings_cache.pkl"
 
@@ -44,8 +46,36 @@ def load_and_prepare_data(file_path):
     return documents
 
 # 벡터 스토어 생성 (캐시와 OpenAI API 혼용)
+
+def preprocess_text(text):
+    # 줄 바꿈과 탭 제거 (엔터 제거 포함)
+    text = text.replace("\n", " ").replace("\t", " ")
+    
+    # 연속된 공백 제거
+    text = re.sub(r'\s+', ' ', text)
+
+    # 불필요한 마침표 제거
+    # 연속된 마침표 처리: `...` -> `.`
+    text = re.sub(r'([.!?])\1+', r'\1', text)
+    # 마침표가 단독으로 존재하는 경우 제거
+    text = re.sub(r'\s+\. ', ' ', text)
+    text = re.sub(r'\.\s+\.', '.', text)
+
+    # 문장 기호와 공백 정리
+    # 문장 기호 앞의 불필요한 공백 제거
+    text = re.sub(r'\s+([.,!?])', r'\1', text)
+    # 문장 기호 뒤의 불필요한 공백 조정 (단일 공백 유지)
+    text = re.sub(r'([.,!?])\s+', r'\1 ', text)
+
+    # 문자열 양 끝의 불필요한 공백 제거
+    text = text.strip()
+
+    return text
+
+
+# 벡터 스토어 생성 (캐시와 OpenAI API 혼용)
 def build_vector_store(documents):
-    embedding_model = OpenAIEmbeddings(model='text-embedding-ada-002')
+    embedding_model = OpenAIEmbeddings(model='text-embedding-3-large')
     embedding_cache = load_embeddings_cache()
     new_embeddings = {}
 
@@ -54,6 +84,9 @@ def build_vector_store(documents):
 
     for doc in documents:
         content = doc.page_content
+        content = preprocess_text(content)
+        # pdb.set_trace()
+
         if content in embedding_cache:
             print(f"✅ Using cached embedding for: {content[:30]}...")
             vectors.append(embedding_cache[content])
@@ -122,7 +155,7 @@ if __name__ == "__main__":
     documents = load_and_prepare_data(file_path)
     vectors, filtered_documents = build_vector_store(documents)
     llm_model = ChatOpenAI(model='gpt-4o-mini', temperature=0)
-    embedding_model = OpenAIEmbeddings(model='text-embedding-ada-002')
+    embedding_model = OpenAIEmbeddings(model='text-embedding-3-large')
 
     while True:
         question = input("질문을 입력해주세요 (종료하려면 'exit' 입력): ")
