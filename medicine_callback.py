@@ -163,15 +163,15 @@ def timeover():
             'outputs': [
                 {
                     'simpleText': {
-                        'text': "아직 제가 생각이 끝나지 않았어요\n잠시 후 아래 말풍선을 눌러주세요."
+                        'text': "아직 자료 수집 분석 중이예요. \n 잠시 후 아래 \'확인하기\' 버튼을 눌러주세요."
                     }
                 }
             ],
             'quickReplies': [
                 {
                     'action': 'message',
-                    'label': '답변 확인하기',
-                    'messageText': '생각답변 확인하기'
+                    'label': '확인하기',
+                    'messageText': '확인하기'
                 }
             ]
         }
@@ -194,8 +194,8 @@ def main(event, context):
     print(f"[Medicine Callback] User ID: {user_id}")
     print(f"[Medicine Callback] Utterance: {utterance}")
 
-    # "생각답변 확인하기" 요청 처리
-    if utterance == "생각답변 확인하기":
+    # "확인하기" 요청 처리
+    if utterance == "확인하기":
         if user_id in response_map and not response_map[user_id].empty():
             response = response_map[user_id].get()
         else:
@@ -203,10 +203,10 @@ def main(event, context):
                 'version': '2.0',
                 'template': {
                     'outputs': [
-                        {'simpleText': {'text': '아직 답변이 준비되지 않았습니다. 잠시 후 다시 시도해주세요.'}}
+                        {'simpleText': {'text': '아직 답변이 준비되지 않았어요. \n 잠시 후 다시 한번 시도해주세요.'}}
                     ],
                     'quickReplies': [
-                        {'action': 'message', 'label': '답변 확인하기', 'messageText': '생각답변 확인하기'}
+                        {'action': 'message', 'label': '확인하기', 'messageText': '확인하기'}
                     ]
                 }
             }
