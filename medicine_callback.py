@@ -163,7 +163,7 @@ def timeover():
             'outputs': [
                 {
                     'simpleText': {
-                        'text': "아직 자료 수집 분석 중이예요. \n 잠시 후 아래 \'확인하기\' 버튼을 눌러주세요."
+                        'text': "아직 자료를 수집 및 분석 중이예요. \n잠시 후 아래 \'확인하기\' 버튼을 눌러주세요."
                     }
                 }
             ],
@@ -203,7 +203,7 @@ def main(event, context):
                 'version': '2.0',
                 'template': {
                     'outputs': [
-                        {'simpleText': {'text': '아직 답변이 준비되지 않았어요. \n 잠시 후 다시 한번 시도해주세요.'}}
+                        {'simpleText': {'text': '아직 답변 정리 중이예요. \n잠시 후 다시 한번 시도해주세요.'}}
                     ],
                     'quickReplies': [
                         {'action': 'message', 'label': '확인하기', 'messageText': '확인하기'}
